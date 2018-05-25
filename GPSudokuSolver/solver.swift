@@ -8,9 +8,12 @@
 
 import Foundation
 
+/// The set of functions below solve Sudokus using a layered strategy. The first line of attack is to fill in cells using an elimination process, looking for a cell that only hold a single potential number, or a number that can only go in a single cell in a given row, column, or square. This is sometimes sufficient to solve the puzzle alone, especially for easier problems. In general, however, we need to resort to a recursive guessing strategy. I believe this may be true for any Sudoku solver, since some problems have multiple solutions.
+
+/// The elimination process works by keeping a matrix of bitfields for each cell in the Sudoku.  Each bit in the bitfield indicates the possibility of that cell holding a potential number. For example, a value of 0...00010010 means the cell can only hold a 2 or 5.  This is handy becuase it allows us to perform boolean operations on all possible numbers in a single operation.  These bitmasks can be updated in two ways.  First, if we determine that a particular value has to go in a specific cell, we can mask all other cells in the row, column, and square with its bitfield. That excludes the possibility of that number from those cells. Second, we can take a cell, bitwise OR the bitfields for all _other_ cells in its row, column, or square together, and take the complement of the result.  If this bitfield has a single bit set (which we can determine efficiently), then we have found a number that can _only_ go in that cell.
+
 // MARK: - Types
 typealias Bitfield = UInt16
-
 typealias PossibilityMatrix = Matrix<Bitfield>
 
 extension Bitfield {
@@ -27,7 +30,8 @@ extension Bitfield {
 // MARK: - Interface
 func solveSudoku(_ sudoku: Sudoku) throws -> Sudoku {
     
-    // The possibilty matrix is a 9x9 array of UInt16s that maps directly to the Sudoku board. The position of set bits indicate what numbers are possible in that cell.  For example, a value of 00010010 says that the cell can only be either a 2 or 5.
+    // The possibilty matrix is a 9x9 array of UInt16s that maps directly to the Sudoku board. The position of set bits indicate what numbers are possible in that cell.
+    // For example, a value of 0...00010010 says that the cell can only be either a 2 or 5.
     var possibilityMatrix = Matrix([[Bitfield]](repeating: [Bitfield](repeating: Bitfield.mask, count: 9), count: 9)) // Initialize such that all numbers are possible for every cell.
     
     // Now update the matrices according to the initial values in the sudoku.
@@ -101,6 +105,7 @@ fileprivate func solvePossibilityMatrix(_ possiblityMatrix: inout PossibilityMat
         mask &= ~guessStack[i]
     }
     
+    // Guess, and try again if we encounter a solving error.
     for guess in guessStack {
         var guessMatrix = possiblityMatrix
         guessMatrix[firstUnknownCell.index] = guess
@@ -114,7 +119,6 @@ fileprivate func solvePossibilityMatrix(_ possiblityMatrix: inout PossibilityMat
         catch SolverError.guessingFailed { continue }
     }
     
-    // If we have gotten to here, guessing failed.
     throw SolverError.guessingFailed
 }
 
@@ -136,41 +140,41 @@ fileprivate func updateKnownCell(withBitfieldComplement bc: Bitfield, at index: 
 /// For each cell, this function looks through the other cells in row, column, and square, and identifies if there are any numbers that can't go anywhere else but the current cell.
 fileprivate func cellEliminationPass(through possibilityMatrix: inout PossibilityMatrix) throws  {
     
-    // Create an matrix with either a bitfield corresponding to an update for a cell, or zero.
-    var updateBitmasks = try possibilityMatrix.map { (cellIndex, value) in
-        guard value != 0 else { throw SolverError.internalInconsistency }
+    // Create an matrix that represents the updates we need to make.  Non-zero cells should store bitfield complements that can be used to update the possibility matrix.
+    var updateBitmasks = try possibilityMatrix.map { (cellIndex, numberPossibilities) in
+        guard numberPossibilities != 0 else { throw SolverError.internalInconsistency }
         
         // Short circuit with no update if we already know a value for this cell
-        guard value.singleBitSet == false else { return 0 }
+        guard numberPossibilities.singleBitSet == false else { return 0 }
         
         /// Helper method that implements code common to row, columns, and squares. It looks for a number that can only go in one spot.
         /// - Parameter complement: a set of cells that are in the same row, column, or square as the current cell, but _excluding_ the current cell.
         /// - Returns: If such a number exists, it returns the complement to that number's possibility bitfield, and nil otherwise.  For example, it will return 11...1101111 for the number 5.
-        func checkForSinglePossibility(in complement: [Bitfield]) throws -> Bitfield? {
-            let complementField = complement.reduce(~Bitfield.mask, |)
-            if complementField.allBitsSet {
+        func findComplementPossibilities(in complement: [Bitfield]) throws -> Bitfield? {
+            let complementPossibilties = complement.reduce(~Bitfield.mask, |)
+            if complementPossibilties.allBitsSet {
                 return nil
             } else {
                 // Check there is only one 0; if there are multiple, we must throw an error because we cannot put more than one number in the same cell!
-                guard complementField.singleBitUnset else { throw SolverError.eliminationInconsistency }
-                return complementField
+                guard complementPossibilties.singleBitUnset else { throw SolverError.eliminationInconsistency }
+                return complementPossibilties
             }
         }
         
         // Check row complement
         var row = possibilityMatrix.row(containing: cellIndex)
         row[cellIndex.1] = 0 // Ignore the current cell
-        if let knownBitfield = try checkForSinglePossibility(in: row) { return knownBitfield }
+        if let complementPossibilities = try findComplementPossibilities(in: row) { return complementPossibilities }
         
         // Check column complement
         var col = possibilityMatrix.column(containing: cellIndex)
         col[cellIndex.0] = 0 // Ignore the current cell
-        if let knownBitfield = try checkForSinglePossibility(in: col) { return knownBitfield }
+        if let complementPossibilities = try findComplementPossibilities(in: col) { return complementPossibilities }
         
         // Check square complement
         var square = possibilityMatrix.square(containing: cellIndex)
         square[3*(cellIndex.0 % 3) + (cellIndex.1 % 3)] = 0 // Ignore the current cell
-        if let knownBitfield = try checkForSinglePossibility(in: square) { return knownBitfield }
+        if let complementPossibilities = try findComplementPossibilities(in: square) { return complementPossibilities }
         
         // No update
         return 0
