@@ -21,10 +21,10 @@ fileprivate func startSolving(_ sudoku: Sudoku) {
         let startDate = Date()
         let solution = try solveSudoku(sudoku)
         print("Solved sudoku in \(Int(Date().timeIntervalSince(startDate)*1000)) ms:\n\(String(solution))")
-        exit(1)
+        exit(0)
     } catch {
         print("Failed solving sudoku with \(error)")
-        exit(0)
+        exit(1)
     }
 }
 
