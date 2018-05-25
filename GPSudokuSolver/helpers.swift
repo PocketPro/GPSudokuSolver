@@ -12,7 +12,7 @@ typealias Sudoku = [[UInt16?]]
 
 func fetchSudokuThen(_ callback: @escaping (Sudoku) -> ()) {
     
-    let url = URL(string: "https://sugoku.herokuapp.com/board?difficulty=random")!
+    let url = URL(string: "https://sugoku.herokuapp.com/board?difficulty=easy")!
     let downloadTask = URLSession.shared.dataTask(with: url) { (data, _, error) in
         guard let data = data else { print("Unable to fetch sudoku with error: \(error!)"); return }
         

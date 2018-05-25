@@ -80,10 +80,12 @@ fileprivate func solvePossibilityMatrix(_ possiblityMatrix: inout PossibilityMat
         try cellEliminationPass(through: &possiblityMatrix)
         
         guard possiblityMatrix.hasZeroCell == false else { throw SolverError.eliminationInconsistency }
-        
+        guard possiblityMatrix.representsValidSudoku else { throw SolverError.eliminationInconsistency }
+
         iterCount += 1
         if iterCount > 1000 { throw SolverError.maxIter }
     } while prevMP != possiblityMatrix
+    
     
     // Short circuit if matrix is solved...
     guard let firstUnknownCell = possiblityMatrix.firstUnknownCell else { return }

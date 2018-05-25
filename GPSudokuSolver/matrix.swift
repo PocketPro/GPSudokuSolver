@@ -92,3 +92,4 @@ struct Matrix<T: Equatable>: Equatable {
         self.storage = storage;
     }
 }
+
