@@ -8,9 +8,20 @@
 
 import Foundation
 
-/// The set of functions below solve Sudokus using a layered strategy. The first line of attack is to fill in cells using an elimination process, looking for a cell that only hold a single potential number, or a number that can only go in a single cell in a given row, column, or square. This is sometimes sufficient to solve the puzzle alone, especially for easier problems. In general, however, we need to resort to a recursive guessing strategy. I believe this may be true for any Sudoku solver, since some problems have multiple solutions.
+/// The set of functions below solve Sudokus using a layered strategy. The first line of attack is to fill in cells using
+/// an elimination process, looking for a cell that only hold a single potential number, or a number that can only go in
+/// a single cell in a given row, column, or square. This is sometimes sufficient to solve the puzzle alone, especially
+/// for easier problems. In general, however, we need to resort to a recursive guessing strategy. I believe this may be
+/// true for any Sudoku solver, since some problems have multiple solutions.
 
-/// The elimination process works by keeping a matrix of bitfields for each cell in the Sudoku.  Each bit in the bitfield indicates the possibility of that cell holding a potential number. For example, a value of 0...00010010 means the cell can only hold a 2 or 5.  This is handy becuase it allows us to perform boolean operations on all possible numbers in a single operation.  These bitmasks can be updated in two ways.  First, if we determine that a particular value has to go in a specific cell, we can mask all other cells in the row, column, and square with its bitfield. That excludes the possibility of that number from those cells. Second, we can take a cell, bitwise OR the bitfields for all _other_ cells in its row, column, or square together, and take the complement of the result.  If this bitfield has a single bit set (which we can determine efficiently), then we have found a number that can _only_ go in that cell.
+/// The elimination process works by keeping a matrix of bitfields for each cell in the Sudoku.  Each bit in the bitfield
+/// indicates the possibility of that cell holding a potential number. For example, a value of 0...00010010 means the cell
+/// can only hold a 2 or 5.  This is handy becuase it allows us to perform boolean operations on all possible numbers in
+/// a single operation.  These bitmasks can be updated in two ways.  First, if we determine that a particular value has
+/// to go in a specific cell, we can mask all other cells in the row, column, and square with its bitfield. That excludes
+/// the possibility of that number from those cells. Second, we can take a cell, bitwise OR the bitfields for all _other_
+/// cells in its row, column, or square together, and take the complement of the result.  If this bitfield has a single
+/// bit set (which we can determine efficiently), then we have found a number that can _only_ go in that cell.
 
 // MARK: - Types
 typealias Bitfield = UInt16
