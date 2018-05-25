@@ -15,11 +15,11 @@ Usage: You can either enter your own sudoku or fetch a random one from the inter
 """
 
 
-fileprivate func solveSudoku(_ sudoku: Sudoku) {
+fileprivate func startSolving(_ sudoku: Sudoku) {
     do {
         print("Solving sudoku:\n\(String(sudoku))")
         let startDate = Date()
-        let solution = try solve(sudoku)
+        let solution = try solveSudoku(sudoku)
         print("Solved sudoku in \(Int(Date().timeIntervalSince(startDate)*1000)) ms:\n\(String(solution))")
         exit(1)
     } catch {
@@ -31,7 +31,7 @@ fileprivate func solveSudoku(_ sudoku: Sudoku) {
 
 if CommandLine.arguments.count == 1 {
     print("Fetching sudoku from sugoku.herokuapp.com....")
-    fetchSudokuThen(solveSudoku)
+    fetchSudokuThen(startSolving)
 } else {
 
     guard CommandLine.arguments.count == 82 else {
@@ -39,6 +39,7 @@ if CommandLine.arguments.count == 1 {
         exit(1)
     }
     
+    // Parse sudoku from command line input
     var rows :[[UInt16?]] = []
     for i in 0..<9 {
         let rowStrings = CommandLine.arguments[(9*i + 1) ..< (9*(i+1) + 1)]
@@ -52,7 +53,7 @@ if CommandLine.arguments.count == 1 {
         rows.append(row)
     }
     
-    solveSudoku(rows)
+    startSolving(rows)
 }
 
 RunLoop.main.run()
