@@ -8,133 +8,129 @@
 
 import Foundation
 
-typealias StateMatrices = (possibilites: Matrix, knownValues: Matrix)
-
+// Possible numbers in a 9x9 matrix
 let numberMask: UInt16 = 0x01FF
 
-/// For each cell, this function looks for known numbers in the same row, col, and square, and eliminates those from the set of possibilities.
-func numberEliminationPass(_ matrices: StateMatrices) throws -> StateMatrices {
-    var mKnownValues = matrices.knownValues
+extension UInt16 {
+    var allBitsSet: Bool { return self == UInt16.max }
     
-    let updatedPossibilities = try matrices.possibilites.map{ (cellIndex, value) in
-        
-        // Short circuit if we already know this cell
-        guard mKnownValues[cellIndex].allBitsSet else { return value }
-        
-        // Eliminate numbers for this cell based on values we know in its row, column, and square
-        let row = mKnownValues.row(containing: cellIndex).reduce(numberMask, &)
-        let col = mKnownValues.column(containing: cellIndex).reduce(numberMask, &)
-        let square = mKnownValues.square(containing: cellIndex).reduce(numberMask, &)
-        let combined = row & col & square
-        
-        guard combined != 0 else { throw SolverError.numberEliminationError }
-        
-        // If there is only one bit set, update the known values.
-        if combined & (combined - 1) == 0 {   // (this bitwise operation unsets the rightmost bit. So if there was only 1 bit set, the result will be 0. )
-            mKnownValues[cellIndex] = ~combined
-        }
-        
-        return combined
+    var singleBitSet: Bool {
+        return (self != 0) && (self & (self - 1) == 0) // This latter operation essentially zeros the rightmost set bit
     }
     
-    return (updatedPossibilities, mKnownValues)
+    var singleBitUnset: Bool {
+        return (self != UInt16.max) && (self | (self + 1) == UInt16.max)
+    }
+}
+
+/// If we find that a particular number has to go in a particular cell, this method can be used to update the board's possbility matrix accordingly.
+func updateKnownNumber(withBitfieldComplement bc: UInt16, at index: Matrix.CellIndex, in possibilityMatrix: inout Matrix) {
+    
+    // Set bits associated with the possibility of this sudoku number to 0 in its row, column, and square.
+    var newMatrix = possibilityMatrix
+        .mapRow(containing: index) { $0 & bc }
+        .mapColumn(containing: index) { $0 & bc }
+        .mapSquare(containing: index) { $0 & bc }
+    
+    // A single bit set at the cell's index, which indicates this number is the only possibility.
+    newMatrix[index] = ~bc
+    
+    possibilityMatrix = newMatrix
 }
 
 /// For each cell, this function looks through the other cells in row, column, and square, and identifies if there are any numbers that can't go anywhere else but the current cell.
-func cellEliminationPass(_ matrices: StateMatrices) throws -> StateMatrices {
-    let mKnownValues = matrices.knownValues
+func cellEliminationPass(through possibilityMatrix: Matrix) throws -> Matrix  {
     
-    // Scan through known values and update
-    var newKnownValues = try matrices.knownValues.map { (cellIndex, value) in
+    // Create an update matrix
+    var updateBitmasks = try possibilityMatrix.map { (cellIndex, value) in
+        guard value != 0 else { throw SolverError.internalInconsistency }
         
-        // Short circuit if we already know a value for this cell
-        guard value.allBitsSet else { return value }
+        // Short circuit with no update if we already know a value for this cell
+        guard value.singleBitSet == false else { return 0 }
         
-        // Helper method that looks through a row, column, or square for a number that can only go in one spot.
-        // If such a number exists, it will have a 0 in the appropriate bit position. We can use this to update the known values matrix directly.
+        // Helper method that implements code common to row, columns, and squares. It looks for a number that can only go in one spot.
+        // - returns: if such a number exists, it returns the complement to that numbers possibility bitfield, and nil otherwise.
         func checkForSinglePossibility(in complement: [UInt16]) throws -> UInt16? {
-            let otherPositionPossibilities = complement.reduce(~numberMask, |)
-            if otherPositionPossibilities.allBitsSet {
+            let complementField = complement.reduce(~numberMask, |)
+            if complementField.allBitsSet {
                 return nil
             } else {
                 // Check there is only one 0; if there are multiple, we must throw an error because we cannot put more than one number in the same cell!
-                guard (otherPositionPossibilities | (otherPositionPossibilities + 1)).allBitsSet else {
-                    throw SolverError.cellEliminationError
-                }
-                return otherPositionPossibilities
+                guard complementField.singleBitUnset else { throw SolverError.cellEliminationError }
+                return complementField
             }
         }
         
-        // Check row
-        var row = matrices.possibilites.row(containing: cellIndex)
-        row[cellIndex.1] = 0 // Drop the current cell
+        // Check row complement
+        var row = possibilityMatrix.row(containing: cellIndex)
+        row[cellIndex.1] = 0 // Ignore the current cell
         if let knownBitfield = try checkForSinglePossibility(in: row) { return knownBitfield }
         
-        // Check row:
-        var col = matrices.possibilites.column(containing: cellIndex)
-        col[cellIndex.0] = 0 // Drop the current cell
+        // Check column complement
+        var col = possibilityMatrix.column(containing: cellIndex)
+        col[cellIndex.0] = 0 // Ignore the current cell
         if let knownBitfield = try checkForSinglePossibility(in: col) { return knownBitfield }
         
-        // Check square
-        var square = matrices.possibilites.square(containing: cellIndex)
-        square[3*(cellIndex.0 % 3) + (cellIndex.1 % 3)] = 0 // Drop the current cell
+        // Check square complement
+        var square = possibilityMatrix.square(containing: cellIndex)
+        square[3*(cellIndex.0 % 3) + (cellIndex.1 % 3)] = 0 // Ignore the current cell
         if let knownBitfield = try checkForSinglePossibility(in: square) { return knownBitfield }
         
-        return value
+        // No update
+        return 0
     }
     
-    return (matrices.possibilites, newKnownValues)
+    // Loop through update matrix and perform updates
+    var newPossibilityMatrix = possibilityMatrix
+    updateBitmasks.forEach{ index, bitmask in
+        guard bitmask != 0 else { return }
+        updateKnownNumber(withBitfieldComplement: bitmask, at: index, in: &newPossibilityMatrix)
+    }
+    
+    return newPossibilityMatrix
 }
+
 
 func solve(_ sudoku: Sudoku) throws -> Sudoku {
     
     // The possibilty matrix is a 9x9 array of UInt16s that maps directly to the Sudoku board. The position of set bits indicate what numbers are possible in that cell.  For example, a value of 00010010 says that the cell can only be either a 2 or 5.
     var mP = Matrix([[UInt16]](repeating: [UInt16](repeating: numberMask, count: 9), count: 9)) // Initialize such that all numbers are possible for every cell.
     
-    // The known matrix is also a 9x9 array of UInt16s that maps directly to the Sudoku board. If the number for a cell is known on the board, the cell in this matrix should have a 0 bit at that position, and 1's elsewhere.  If the cell isn't known, it should be all 1's.  For example, 11110111 indicates that the value for a particular cell is known, and that it is 4.
-    var mK = Matrix([[UInt16]](repeating: [UInt16](repeating: UInt16.max, count: 9), count: 9)) // Initialize as if we knew no values.
-    
     // Now update the matrices according to the initial values in the sudoku.
     for i in 0..<9 {
         for j in 0..<9 {
             if let value = sudoku[i][j] {
                 let bitRepresentation = 1 << (value - 1)
-                mP[(i,j)] = bitRepresentation
-                mK[(i,j)] = ~bitRepresentation
+                updateKnownNumber(withBitfieldComplement: ~bitRepresentation, at: (i,j), in: &mP)
             }
         }
     }
     
     // Now iterate by doing a number elimination pass, then cell elimination pass, until neither has any effect.
     var iterCount = 0
-    var wasUpdated = false
+    var prevMP: Matrix?
     repeat {
-        let prevMatrices = (p: mP, k: mK)
-        (mP, mK) = try cellEliminationPass(numberEliminationPass((mP, mK)))
-        wasUpdated = (prevMatrices.p != mP || prevMatrices.k != mK)
+        prevMP = mP
+        mP = try cellEliminationPass(through: mP)
         
         iterCount += 1
         if iterCount > 1000 { throw SolverError.maxIter }
-    } while wasUpdated
+    } while prevMP != mP
     
     
     // CHeck if fully solved, else throw error.
-    let solvedSudoku = try mK.map { (_, value) -> UInt16 in
-//        guard value.allBitsSet == false else { throw SolverError.noSolutionFound }
-                guard value.allBitsSet == false else { return 0 }
-
+    let solvedSudoku = try mP.map { (_, value) -> UInt16 in
+//        guard singleBitSet == false else { throw SolverError.noSolutionFound }
+        guard value.singleBitSet else { return 0 }
+        guard value != 0 else { throw SolverError.internalInconsistency }
         
-        // Flip the bits in value and look for the first set bit.
+        
+        // Look for the set bit to get the sudoku number
         var sudokuNumber: UInt16 = 1
-        var shiftedValue = ~value
+        var shiftedValue = value
         while (shiftedValue & 1) == 0 {
             sudokuNumber += 1
             shiftedValue >>= 1
-        }
-        
-        // Assert that we only had one zero...
-        guard (shiftedValue>>1) == 0 else {
-            throw SolverError.internalInconsistency
         }
         
         return sudokuNumber
@@ -154,7 +150,4 @@ enum SolverError: Error {
     case numberEliminationError
 }
 
-extension UInt16 {
-    var allBitsSet: Bool { return self == UInt16.max }
-}
 

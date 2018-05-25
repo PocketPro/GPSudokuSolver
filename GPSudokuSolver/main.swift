@@ -42,7 +42,6 @@ if CommandLine.arguments.count == 1 {
     var rows :[[UInt16?]] = []
     for i in 0..<9 {
         let rowStrings = CommandLine.arguments[(9*i + 1) ..< (9*(i+1) + 1)]
-        print("hi")
         let row = rowStrings.map{ (str: String) -> UInt16? in
             guard let numericValue = UInt16(str) else {
                 print("Unable to parse input argument \(str)\n\(usageString)")
