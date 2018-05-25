@@ -13,10 +13,10 @@ typealias StateMatrices = (possibilites: Matrix, knownValues: Matrix)
 let numberMask: UInt16 = 0x01FF
 
 /// For each cell, this function looks for known numbers in the same row, col, and square, and eliminates those from the set of possibilities.
-func numberEliminationPass(_ matrices: StateMatrices) -> StateMatrices {
+func numberEliminationPass(_ matrices: StateMatrices) throws -> StateMatrices {
     var mKnownValues = matrices.knownValues
     
-    let updatedPossibilities = matrices.possibilites.map{ (cellIndex, value) in
+    let updatedPossibilities = try matrices.possibilites.map{ (cellIndex, value) in
         
         // Short circuit if we already know this cell
         guard mKnownValues[cellIndex].allBitsSet else { return value }
@@ -26,6 +26,8 @@ func numberEliminationPass(_ matrices: StateMatrices) -> StateMatrices {
         let col = mKnownValues.column(containing: cellIndex).reduce(numberMask, &)
         let square = mKnownValues.square(containing: cellIndex).reduce(numberMask, &)
         let combined = row & col & square
+        
+        guard combined != 0 else { throw SolverError.numberEliminationError }
         
         // If there is only one bit set, update the known values.
         if combined & (combined - 1) == 0 {   // (this bitwise operation unsets the rightmost bit. So if there was only 1 bit set, the result will be 0. )
@@ -39,45 +41,44 @@ func numberEliminationPass(_ matrices: StateMatrices) -> StateMatrices {
 }
 
 /// For each cell, this function looks through the other cells in row, column, and square, and identifies if there are any numbers that can't go anywhere else but the current cell.
-func cellEliminationPass(_ matrices: StateMatrices) -> StateMatrices {
+func cellEliminationPass(_ matrices: StateMatrices) throws -> StateMatrices {
     let mKnownValues = matrices.knownValues
     
     // Scan through known values and update
-    var newKnownValues = matrices.knownValues.map { (cellIndex, value) in
+    var newKnownValues = try matrices.knownValues.map { (cellIndex, value) in
         
         // Short circuit if we already know a value for this cell
         guard value.allBitsSet else { return value }
         
         // Helper method that looks through a row, column, or square for a number that can only go in one spot.
         // If such a number exists, it will have a 0 in the appropriate bit position. We can use this to update the known values matrix directly.
-        func checkForSinglePossibility(in complement: [UInt16]) -> UInt16? {
+        func checkForSinglePossibility(in complement: [UInt16]) throws -> UInt16? {
             let otherPositionPossibilities = complement.reduce(~numberMask, |)
-            return otherPositionPossibilities.allBitsSet == false ? otherPositionPossibilities : nil
+            if otherPositionPossibilities.allBitsSet {
+                return nil
+            } else {
+                // Check there is only one 0; if there are multiple, we must throw an error because we cannot put more than one number in the same cell!
+                guard (otherPositionPossibilities | (otherPositionPossibilities + 1)).allBitsSet else {
+                    throw SolverError.cellEliminationError
+                }
+                return otherPositionPossibilities
+            }
         }
         
         // Check row
         var row = matrices.possibilites.row(containing: cellIndex)
         row[cellIndex.1] = 0 // Drop the current cell
-        if let knownBitfield = checkForSinglePossibility(in: row) {
-            return knownBitfield
-            
-        }
+        if let knownBitfield = try checkForSinglePossibility(in: row) { return knownBitfield }
         
         // Check row:
         var col = matrices.possibilites.column(containing: cellIndex)
         col[cellIndex.0] = 0 // Drop the current cell
-        if let knownBitfield = checkForSinglePossibility(in: col) {
-            return knownBitfield
-            
-        }
+        if let knownBitfield = try checkForSinglePossibility(in: col) { return knownBitfield }
         
         // Check square
         var square = matrices.possibilites.square(containing: cellIndex)
         square[3*(cellIndex.0 % 3) + (cellIndex.1 % 3)] = 0 // Drop the current cell
-        if let knownBitfield = checkForSinglePossibility(in: square) {
-            return knownBitfield
-            
-        }
+        if let knownBitfield = try checkForSinglePossibility(in: square) { return knownBitfield }
         
         return value
     }
@@ -109,7 +110,7 @@ func solve(_ sudoku: Sudoku) throws -> Sudoku {
     var wasUpdated = false
     repeat {
         let prevMatrices = (p: mP, k: mK)
-        (mP, mK) = cellEliminationPass(numberEliminationPass((mP, mK)))
+        (mP, mK) = try cellEliminationPass(numberEliminationPass((mP, mK)))
         wasUpdated = (prevMatrices.p != mP || prevMatrices.k != mK)
         
         iterCount += 1
@@ -148,6 +149,9 @@ enum SolverError: Error {
     case maxIter
     case noSolutionFound
     case internalInconsistency
+    
+    case cellEliminationError
+    case numberEliminationError
 }
 
 extension UInt16 {
